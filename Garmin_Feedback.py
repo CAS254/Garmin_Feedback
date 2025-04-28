@@ -1,42 +1,52 @@
 # This script creates feedback for participants that have worn a Garmin device.
+# Feedback will be outputted as a PDF
+# The feedback consists of heart rate mean, min and max. A graph displaying daily heart rate (BPM) and activity (ENMO) as well as a graph displaying daily steps count.
 # Version: 1.0
-# Date: 19-03-2025
+# Date: 25-04-2025
 # Author: CAS254
 
+# --- Importing Python packages needed to run the code --- #
 import os
-from heapq import merge
-
 import pandas as pd
 from colorama import Fore
 from colorama import init as colorama_init
 import numpy as np
-from fontTools.misc.plistlib import end_date
 from fpdf import FPDF
 import matplotlib.pyplot as plt
 import seaborn as sns
-from datetime import datetime, date
-import matplotlib.dates as mdates
-from datetime import time
 from PIL import Image
 from matplotlib.patches import Rectangle, Patch
 from matplotlib.lines import Line2D
 import argparse
 import time
 
-
+# Automatic re-set of text color to default after printing text in different color
 colorama_init(autoreset=True)
 
-# Folder path for where the Garmin data is saved
+# --- FOLDER PATHS - SPECIFY BELOW --- #
+# Main folder where garmin data is saved:
 data_dir = 'Q:/Data/BRC_Projects/PP04 - Thyroid/_data/Garmin/_data'
-feedback_folder = 'Q:/Data/BRC_Projects/PP04 - Thyroid/Participant_feedback/feedback'
-collapsed_data = 'Q:/Data/BRC_Projects/PP04 - Thyroid/Participant_feedback/collapsed_data'
-plots_path = 'Q:/Data/BRC_Projects/PP04 - Thyroid/Participant_feedback/plots'
+# Main feedback folder where participant feedback should be saved (This folder should contain the folders 'feedback', 'collapsed_data' and 'plots':
+participant_feedback_dir = 'Q:/Data/BRC_Projects/PP04 - Thyroid/Participant_feedback'
 
+# The folders below should NOT be edited
+feedback_folder = os.path.join(participant_feedback_dir, 'feedback')
+collapsed_data = os.path.join(participant_feedback_dir, 'collapsed_data')
+plots_path = os.path.join(participant_feedback_dir, 'plots')
+
+# ====================================================================================================================== #
+# ====================================================================================================================== #
 
 # --- THE CODE STARTS BELOW --- #
 
 # --- Creating and exporting PDF with participant feedback --- #
-def create_pdf(output_dir, id, num_days, height_mm):
+def create_pdf(output_dir, id, height_mm):
+    '''
+    The function creates a PDF with feedback folder containing heart rate, activity and daily steps data.
+    :param output_dir: Folder where the PDF will be outputted to.
+    :param id: User ID for whom the feedback will be created for
+    :param height_mm: Height of the heart rate and activity plot, used to know where to move curser to for the next plot.
+    '''
     pdf = FPDF()
     pdf.add_page()
 
@@ -45,7 +55,7 @@ def create_pdf(output_dir, id, num_days, height_mm):
     pdf.cell(40, 10, "Participant Feedback from Garmin", ln=1)
     pdf.line(10, 20, 200, 20)
 
-    # Inserting plot displaying activity and heart rate
+    # Inserting title for activity and heart rate data
     pdf.set_font('Arial', 'B', 16)
     pdf.cell(0, 20, 'Activity and heart rate data', ln=1)
 
@@ -67,11 +77,13 @@ def create_pdf(output_dir, id, num_days, height_mm):
 
     # Inserting the activity and heart rate plot
     path = os.path.join(plots_path, f'activity_heartrate/{id}_plot.png')
-    y = pdf.get_y()
-    pdf.image(path, x=10, y=y, w=180)
 
     if os.path.exists(path):
+        y = pdf.get_y()
+        pdf.image(path, x=10, y=y, w=180)
         os.remove(path)
+    else:
+        pass
 
     # Setting the y (curser) to the height of the activity and heartrate plot (so that next plot is below this)
     pdf.set_y(y + height_mm + 10)
@@ -87,7 +99,7 @@ def create_pdf(output_dir, id, num_days, height_mm):
     else:
         pass
 
-    # Outputting the PDF
+    # Outputting the PDF to the feedback folder
     pdf.output(os.path.join(output_dir, f"{id}_feedback.pdf"))
 
 
@@ -97,9 +109,13 @@ def read_file(list_ids, feedback):
     Searching in data folder for folders for specified participants listed in list_ids or making list of all participants if it is specified to create feedback for all participants
     :param list_ids: ID's to create feedback for
     :param feedback: Specified if feedback should be created for all participants or only for specified IDS
-    :return: Dictionary with participant ID and folder path for this/these participants data
+    :return: participant_paths: Dictionary with participant ID and folder path for this/these participants data
+    :return: list_IDS: list of IDs that feedback will be created for (If ID's are specified, the list will already be provided, otherwise an empty list is passed as argument, and the list of ID's will be created and returned here
     """
+    # Dictionary to save ID's and folder paths for each user that feedback is created for
     participant_paths = {}
+
+    # Sub folders with Garmin data
     sub_folders = ['CRF02', 'CRF149', 'CRF400']
 
     # Get list of IDs that already have feedback (and stripping filenames to get IDs only)
@@ -143,9 +159,11 @@ def read_file(list_ids, feedback):
 def heartrate_wear_time(file_path):
     """
     The function finds the wear start and end time based on HR values.
-    :param participant_paths:
-    :return: wear start end end time and heart rate dataframe.
+    :param file_path: File paths for the specific participant folder with Garmin data
+    :return: start time, end time: The start and end wear time for each participant
+    :return: heartrate_df: Dataframe with heart rate data
     """
+    # Importing heart rate data frame
     hr_file_path = os.path.join(file_path, f'{id}_heartrate.csv')
     heartrate_df = pd.read_csv(hr_file_path, usecols=['Start Time (Local)', 'Heart Rate (bpm)'], dtype={'Heart Rate (bpm)': 'int16'})
 
@@ -153,10 +171,11 @@ def heartrate_wear_time(file_path):
     values_to_replace = [0, -1, 1, 255]
     heartrate_df['Heart Rate (bpm)'] = heartrate_df['Heart Rate (bpm)'].replace(values_to_replace, np.nan)
 
-    # Finding the first place in the hr file with 600 consecutive rows that are NOT missing
+    # Finding the first place in the HR file with 600 consecutive rows that are NOT missing
     rolling_sum = heartrate_df['Heart Rate (bpm)'].notna().rolling(window=600).sum()
     valid_indices = rolling_sum[rolling_sum == 600].index
 
+    # Finding the last place in the HR file with 600 consecutive rows that are NOT missing
     rolling_sum_end = heartrate_df['Heart Rate (bpm)'].notna().rolling(window=600).sum()
     end_index = rolling_sum_end[rolling_sum_end == 600].index[-1]
     if valid_indices.empty:
@@ -172,6 +191,11 @@ def heartrate_wear_time(file_path):
 
 # --- Reading accelerometer data --- #
 def read_acc_file(file_path):
+    '''
+    Reads in the accelerometer data
+    :param file_path: File path for garmin data
+    :return: acc_df: The accelerometer data as a dataframe
+    '''
     acc_file_path = os.path.join(file_path, f'{id}_accelerometer.csv')
     acc_df = pd.read_csv(acc_file_path, usecols=['First Name', 'Start Time (Local)', 'Start Time (Local)', 'X', 'Y', 'Z'],
                                                  dtype={'X': 'float32', 'Y': 'float32', 'Z': 'float32'})
@@ -182,12 +206,12 @@ def read_acc_file(file_path):
 def trim_file(df, start_time, end_time):
     """
     The function trims a specified file (hr or acc file) according to specified wear start and end times (from HR file)
-    :param df:
-    :param wear_start_time:
-    :param wear_end_time:
-    :return:
+    :param df: Dataframe that you wish to trim
+    :param start_time: The wear start time (first 600 consecutive rows that are not missing/bad signal)
+    :param end_time: The wear end time (last 600 consecutive rows that are not missing/bad signal)
+    :return: trimmed_df: The dataframe trimmed according to the start and end wear time
     """
-    # Formatting the Start Time (Local) variable
+    # Formatting the timestamp variables
     df['Start Time (Local)'] = pd.to_datetime(df['Start Time (Local)'])
     start_time = pd.to_datetime(start_time).round('min')
     end_time = pd.to_datetime(end_time).floor('min')
@@ -206,22 +230,32 @@ def trim_file(df, start_time, end_time):
 def calculate_enmo(df):
     """
     The function calculates ENMO and collapses the accelerometer file to minute level
-    :param df
-    :return:
+    :param df: Accelerometer dataframe
+    :return: df: The accelerometer dataframe with timestamp and ENMO as the only two variables
     """
+    # Calculating vektor magnitude
     df['vektor_magnitude'] = np.sqrt(df['X'] ** 2 + df['Y'] ** 2 + df['Z'] ** 2)
+
     # Calculating ENMO (Substracting 1000 mg (to get into g) and truncate negative values to 0):
     df['ENMO'] = np.maximum(0, df['vektor_magnitude'] - 1000)
+
+    # Creating copy of dataframe only including timestamp and ENMO
     df = df[['Start Time (Local)', 'ENMO']].copy()
     return df
 
 
 # --- Collapse dataframe into minute level and create day variable --- #
 def collapse_df(df):
+    '''
+    Collapsing dataframe to minute level
+    :param df: The dataframe that you want to collapse (heart rate or accelerometer df)
+    :return: collapsed_df: The specified dataframe collapsed
+    '''
     # Collapsing data to minute level :
     df['Start Time (Local)'] = pd.to_datetime(df['Start Time (Local)'])
     df.set_index('Start Time (Local)', inplace=True)
     collapsed_df = df.resample('1min').mean().reset_index()
+
     # Create day variable relative to start of wear
     collapsed_df['date'] = collapsed_df['Start Time (Local)'].dt.date
     collapsed_df['day'] = (collapsed_df['date'] != collapsed_df['date'].shift()).cumsum()
@@ -231,6 +265,14 @@ def collapse_df(df):
 
 # --- Removing noise from accelerometer data --- #
 def remove_noise(df):
+    '''
+    Calculated mean enmo and SD for each hour of the day.
+    Hour's with a SD below 10 is interpreted as sleep/still hours and the mean ENMO for these hours are used to remove noise from data.
+    (As ENMO for these hours should be around 0)
+    :param df: Accelerometer dataframe
+    :return: still_hour_enmo_mean: The enmo mean for hours where SD is below 10 (interpreted as sleep/still hours)
+    '''
+    # Formatting datetime and creating variable to tag hour of day
     df['Start Time (Local)'] = pd.to_datetime(df['Start Time (Local)'])
     df['hour'] = df['Start Time (Local)'].dt.hour
 
@@ -245,6 +287,14 @@ def remove_noise(df):
 
 # --- Merging HR and Acc data --- #
 def merge_data(hr_df, acc_df, still_hour_enmo_mean):
+    '''
+    Merging the collapsed data
+    :param hr_df: heart rate dataframe
+    :param acc_df: accelerometer dataframe
+    :param still_hour_enmo_mean: the enmo_mean for still/sleep hours
+    :return: merged_df: Returning the merged dataframe
+    '''
+    # Merging heart rate and accelerometer data on timestamp variables
     merged_df = hr_df.merge(acc_df, on=['Start Time (Local)', 'day', 'date'])
 
     # Removing noise from accelerometer data and truncating negative values to 0
@@ -257,6 +307,11 @@ def merge_data(hr_df, acc_df, still_hour_enmo_mean):
 
 # --- Creating plot of HR and acc data for each day --- #
 def combine_barplot_lineplot(df):
+    '''
+    Creating plot displaying daily heart rate and movement
+    :param df: The merged dataframe with heart rate and movement data
+    :return num_days, height_mm: Returning number of days device was worn and height of plot to be able to specify measures in PDF
+    '''
     # Formatting date time variable and creating time variable
     df['Start Time (Local)'] = pd.to_datetime(df['Start Time (Local)'])
     df['date'] = df['Start Time (Local)'].dt.date
@@ -293,7 +348,7 @@ def combine_barplot_lineplot(df):
         merged_day_df['ENMO'] = merged_day_df['ENMO'].fillna(0)
 
 
-        # Creating minute variable so use a numeric time variable when plotting data over time
+        # Creating minute variable to use a numeric time variable when plotting data over time
         merged_day_df['minutes'] = merged_day_df['time'].apply(lambda t: t.hour * 60 + t.minute)
         merged_day_df['Heart Rate (bpm)'] = merged_day_df['Heart Rate (bpm)'].replace('', np.nan)
         merged_day_df['Heart Rate (bpm)'] = pd.to_numeric(merged_day_df['Heart Rate (bpm)'], errors='coerce')
@@ -342,7 +397,7 @@ def combine_barplot_lineplot(df):
         ax_bar.set_ylabel('Activity', color=enmo_color, fontsize=10)
         ax_line.set_ylabel('Heart Rate (BPM)', color=heartrate_color, fontsize=10)
 
-        # Generating date variable to display data for each sub plot
+        # Generating date variable to display date for each sub plot
         day_date = day_df['date'].iloc[0]
         formatted_date = day_date.strftime('%d-%m-%Y')
         weekday = day_date.strftime('%A')
@@ -358,7 +413,6 @@ def combine_barplot_lineplot(df):
 
         # Setting grid lines
         plt.grid(True, linestyle='--', alpha=0.1, axis='y', zorder=0)
-
 
         # Specifying ticks on the x-axis (only on the last days sub plot):
         if i == num_days - 1:
@@ -393,11 +447,17 @@ def combine_barplot_lineplot(df):
     px_per_mm = dpi / 25.4
     height_mm = height_px / px_per_mm
     plt.close(fig)
+
     return num_days, height_mm
 
 
 # --- Summarising heart rate data --- #
 def sum_heartrate(df):
+    '''
+    Summarising heart rate data to feedback mean, min and max heart rate
+    :param df: heart rate dataframe
+    :return: min_hr, max_hr, mean_hr: Returns mean, minimum and maximum heartrate for the full wear duration
+    '''
     min_hr = int(round(df['Heart Rate (bpm)'].min(), 0))
     max_hr = int(round(df['Heart Rate (bpm)'].max(), 0))
     mean_hr = int(round(df['Heart Rate (bpm)'].mean(), 0))
@@ -407,10 +467,16 @@ def sum_heartrate(df):
 
 # --- Reading in dailies file --- #
 def read_dailies(file_path):
+    '''
+    Importing dailises csv to create plot of daily steps count
+    :param file_path: path for garmin data folder
+    '''
+    # Importing dailies data frame
     dailies_file_path = os.path.join(file_path, f'{id}_dailies.csv')
     if os.path.exists(dailies_file_path):
         dailies_df = pd.read_csv(dailies_file_path, usecols=['Calendar Date (Local)', 'Steps'], dtype={'Steps': 'int16'})
 
+        # Formatting data variable
         dailies_df['Date'] = pd.to_datetime(dailies_df['Calendar Date (Local)']).dt.strftime('%d-%m-%y')
 
         # Clearing any existing plots
@@ -425,14 +491,18 @@ def read_dailies(file_path):
         plt.ylabel('Steps')
         plt.title('Daily steps count', fontsize=14, fontweight='bold')
 
+        # Displaying step count above the daily bar
         for index, row in dailies_df.iterrows():
             plt.text(index, row['Steps'] + 100, str(row['Steps']), ha='center', fontsize=8)
 
+        # Setting height of y axis
         max_steps = dailies_df['Steps'].max()
         plt.ylim(0, max_steps + 500)
 
+        # Inserting grid lines
         plt.grid(True, linestyle='--', alpha=0.5, axis='y')
 
+        # Outputting steps plot
         plt.tight_layout()
         path = os.path.join(plots_path, f'steps/{id}_steps.png')
         plt.savefig(path, dpi=300, bbox_inches='tight')
@@ -529,7 +599,6 @@ if __name__ == '__main__':
             # Trimming acc file to start and end wear times
             trimmed_acc_df = trim_file(collapsed_acc_df, start_time, end_time)
 
-
             # Merging acc and HR data
             merged_df = merge_data(trimmed_hr_df, trimmed_acc_df, still_hour_enmo_mean)
 
@@ -545,7 +614,7 @@ if __name__ == '__main__':
             read_dailies(file_path)
 
             # Creating PDF with participant feedback in
-            create_pdf(feedback_folder, id, num_days, height_mm)
+            create_pdf(feedback_folder, id, height_mm)
 
             code_duration = time.time() - code_start
             print(f'{id} processed in {code_duration:.2f} seconds')
