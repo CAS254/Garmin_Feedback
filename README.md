@@ -30,7 +30,7 @@ Create the following folder structure in your project directory:
 Certain Python modules are required to run the code. A **requirements.txt** file is included within the downloaded ZIP file and contains all necessary dependencies for the project. See the User Guides on [GitHub wiki](https://github.com/CAS254/Garmin_Feedback/wiki) for detailed instructions on installing these dependencies.
 
 # Preparing the script to run
-For a description of the Garmin Feedback script, see [Explanation of code](https://github.com/MRC-Epid/Garmin_Feedback/wiki/2.-Explanation-of-code). 
+For a description of the Garmin Feedback script, see [Explanation of code](https://github.com/CAS254/Garmin_Feedback/wiki/2.-Explanation-of-code). 
 
 Before executing the script, some variables must be edited to match the specific settings of your study. These variables are located near the beginning of the script and are commented to explain how to edit.
 
