@@ -3,7 +3,7 @@ Garmin Feedback is a python project designed to generate participant feedback fo
 
 It is recommended to set up a virtual environment within a Python interpreter (PyCharm is used within the MRC Epidemiology Unit) and run the project through this environment. Follow the user guides for instructions on how to set up, prepare, and run the project using both approaches.
 
-For detailed user guides on setting up and running the script, refer to the repository [wiki](). 
+For detailed user guides on setting up and running the script, refer to the repository [wiki](https://github.com/CAS254/Garmin_Feedback/wiki). 
 
 # Prerequisites
 - Data from Garmin devices: Heart rate, accelerometer and dailies files in CSV format.
