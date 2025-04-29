@@ -33,11 +33,19 @@ participant_feedback_dir = 'Q:/Data/BRC_Projects/PP04 - Thyroid/Participant_feed
 feedback_folder = os.path.join(participant_feedback_dir, 'feedback')
 collapsed_data = os.path.join(participant_feedback_dir, 'collapsed_data')
 plots_path = os.path.join(participant_feedback_dir, 'plots')
+activity_heartrate_path = os.path.join(plots_path, 'activity_heartrate')
+steps_path = os.path.join(plots_path, 'steps')
+
 
 # ====================================================================================================================== #
 # ====================================================================================================================== #
 
 # --- THE CODE STARTS BELOW --- #
+
+# --- Creating folders if not existing --- #
+def create_folder(folder_path):
+    if not os.path.exists(folder_path):
+        os.mkdir(folder_path)
 
 # --- Creating and exporting PDF with participant feedback --- #
 def create_pdf(output_dir, id, height_mm):
@@ -76,7 +84,7 @@ def create_pdf(output_dir, id, height_mm):
     pdf.ln(10)
 
     # Inserting the activity and heart rate plot
-    path = os.path.join(plots_path, f'activity_heartrate/{id}_plot.png')
+    path = os.path.join(activity_heartrate_path, f'{id}_plot.png')
 
     if os.path.exists(path):
         y = pdf.get_y()
@@ -91,7 +99,7 @@ def create_pdf(output_dir, id, height_mm):
     # Inserting plot displaying daily steps
     pdf.set_font('Arial', 'B', 16)
     pdf.cell(0, 10, "Daily steps", ln=1)
-    step_path = os.path.join(plots_path, f'steps/{id}_steps.png')
+    step_path = os.path.join(steps_path, f'{id}_steps.png')
     if os.path.exists(step_path):
         y = pdf.get_y()
         pdf.image(step_path, x=10, y=y + 1, w=120)
@@ -437,7 +445,7 @@ def combine_barplot_lineplot(df):
 
     # Optimizing the layout of the subplots and adding space between each plot
     plt.tight_layout(pad=1.0)
-    path = os.path.join(plots_path, f'activity_heartrate/{id}_plot.png')
+    path = os.path.join(activity_heartrate_path, f'{id}_plot.png')
     plt.savefig(path, dpi=300, bbox_inches='tight')
 
     # re-opening plot to get the height for the pdf (To be able to move the curser)
@@ -504,7 +512,7 @@ def read_dailies(file_path):
 
         # Outputting steps plot
         plt.tight_layout()
-        path = os.path.join(plots_path, f'steps/{id}_steps.png')
+        path = os.path.join(steps_path, f'{id}_steps.png')
         plt.savefig(path, dpi=300, bbox_inches='tight')
         plt.close()
     else:
@@ -513,6 +521,11 @@ def read_dailies(file_path):
 # --- Calling functions --- #
 if __name__ == '__main__':
 
+    # Creating directories if not already present:
+    list_dirs = [feedback_folder, collapsed_data, plots_path, activity_heartrate_path, steps_path]
+    for folder in list_dirs:
+        create_folder(folder)
+    
     # Making script interactive, so the user needs to input arguments
     parser = argparse.ArgumentParser(description="Creating Garmin feedback for one or multiple IDs")
 
