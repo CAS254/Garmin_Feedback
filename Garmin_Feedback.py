@@ -24,10 +24,20 @@ import time
 colorama_init(autoreset=True)
 
 # --- FOLDER PATHS - SPECIFY BELOW --- #
-# Main folder where garmin data is saved:
-data_dir = 'Q:/Data/BRC_Projects/PP04 - Thyroid/_data/Garmin/_data'
-# Main feedback folder where participant feedback should be saved (This folder should contain the folders 'feedback', 'collapsed_data' and 'plots':
-participant_feedback_dir = 'Q:/Data/BRC_Projects/PP04 - Thyroid/participant_feedback'
+# Path to the main folder where participant Garmin data is stored.
+# Example: 'Q:/mystudy/_data/Garmin'
+data_dir = ''
+
+# Path to the main feedback folder where participant feedback should be saved.
+# This folder must exist before running the script.
+# Required subfolders will ('feedback', 'collapsed_data', 'plots') will be created automatically if they don't already exist.
+# Example: 'Q:/mystudy/participant_feedback
+participant_feedback_dir = ''
+
+# If participant folders are stored within subfolders inside data_dir (e.g., Patients, Controls), list them here.
+# Example: ['Patients', 'Controls']
+# Leave as an empty list [] if participant folders are stored directly in the data_dir.
+sub_folders = []
 
 # The folders below should NOT be edited
 feedback_folder = os.path.join(participant_feedback_dir, 'feedback')
@@ -112,7 +122,7 @@ def create_pdf(output_dir, id, height_mm):
 
 
 # --- Searching for participant specific data folder --- #
-def read_file(list_ids, feedback):
+def read_file(list_ids, feedback, sub_folders):
     """
     Searching in data folder for folders for specified participants listed in list_ids or making list of all participants if it is specified to create feedback for all participants
     :param list_ids: ID's to create feedback for
@@ -123,9 +133,6 @@ def read_file(list_ids, feedback):
     # Dictionary to save ID's and folder paths for each user that feedback is created for
     participant_paths = {}
 
-    # Sub folders with Garmin data
-    sub_folders = ['CRF02', 'CRF149', 'CRF400']
-
     # Get list of IDs that already have feedback (and stripping filenames to get IDs only)
     existing_feedback_ids = set()
     if feedback == 'REMAINING':
@@ -134,12 +141,21 @@ def read_file(list_ids, feedback):
                 existing_id = file.split('_feedback')[0]
                 existing_feedback_ids.add(existing_id)
 
-    # Creating paths for all participant folders within the subfolders
-    for sub_dir in sub_folders:
-        sub_dir_path = os.path.join(data_dir, sub_dir)
+    # Ensuring code can run with and without subfolders within the data_dir
+    if sub_folders is None:
+        sub_folders = []
+
+    # Creating search pattern so look for within data_dir (and subfolders if any)
+    if not sub_folders:
+        search_paths = [data_dir]
+    else:
+        search_paths = [os.path.join(data_dir, sub_dir) for sub_dir in sub_folders]
+
+    for sub_dir_path in search_paths:
         if not os.path.isdir(sub_dir_path):
             continue
 
+        # Creating paths for all participant folders within the folders (and subfolders)
         for participant in os.listdir(sub_dir_path):
             full_path = os.path.join(sub_dir_path, participant)
             if os.path.isdir(full_path):
@@ -566,7 +582,7 @@ if __name__ == '__main__':
         list_ids = [id.strip() for id in participant_id.split(",")]
 
     # Creating list of participants to create feedback for
-    participant_paths, list_ids = read_file(list_ids, feedback)
+    participant_paths, list_ids = read_file(list_ids, feedback, sub_folders)
 
     # Formatting and printing text to display who feedback is created for
     count_participants = len(list_ids)
