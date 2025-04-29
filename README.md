@@ -14,7 +14,7 @@ For detailed user guides on setting up and running the script, refer to the repo
 - This process was developed on Windows and has **NOT** been tested on other operating systems, such as macOS.
 - The script has been tested with Python version 3.12. Future versions may introduce incompatibilities, but testing and updates will occur as new versions are released.
 - The script assumes that data from the Garmin device is stored in participant-specific subfolders, with each subfolder named after the participant's ID.
-- The script expects files to follow the naming convention: <participant_ID>_heartrate.csv (or _accelerometer.csv/_dailies.csv). Within the MRC Epidemiology Unit, a separate rename and unzip script ensures files are named correctly after being exported from Fitrockr.  
+- The script expects files to follow the naming convention: ```<participant_ID>_heartrate.csv``` (or ```_accelerometer.csv```/```_dailies.csv```). Within the MRC Epidemiology Unit, a separate rename and unzip script ensures files are named correctly after being exported from Fitrockr.  
 
 # Downloading and preparing the environment
 ### Set up folder structure
