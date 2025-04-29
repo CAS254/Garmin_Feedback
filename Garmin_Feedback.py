@@ -27,7 +27,7 @@ colorama_init(autoreset=True)
 # Main folder where garmin data is saved:
 data_dir = 'Q:/Data/BRC_Projects/PP04 - Thyroid/_data/Garmin/_data'
 # Main feedback folder where participant feedback should be saved (This folder should contain the folders 'feedback', 'collapsed_data' and 'plots':
-participant_feedback_dir = 'Q:/Data/BRC_Projects/PP04 - Thyroid/Participant_feedback'
+participant_feedback_dir = 'Q:/Data/BRC_Projects/PP04 - Thyroid/participant_feedback'
 
 # The folders below should NOT be edited
 feedback_folder = os.path.join(participant_feedback_dir, 'feedback')
