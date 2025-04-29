@@ -577,7 +577,7 @@ if __name__ == '__main__':
     if number_feedback == 3:
         print(Fore.CYAN + f'Creating feedback for specified participants. \n')
         participant_id = args.participant_id or input(
-            "Enter the participant ID(s) for which you want to create feedback (comma separated):  ")
+            "Enter the participant ID(s) for whom you want to create feedback (comma separated):  ")
         feedback = 'IDS'
         list_ids = [id.strip() for id in participant_id.split(",")]
 
