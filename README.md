@@ -35,5 +35,5 @@ For a description of the Garmin Feedback script, see [Explanation of code](https
 Before executing the script, some variables must be edited to match the specific settings of your study. These variables are located near the beginning of the script and are commented to explain how to edit.
 
 # Output 
-The process generates feedback files for participants based on their Garmin data. It produces feedback on their daily heart rate, activity and steps. The feedback files will be saved in the ```feedback``` folder within the ```participant_feedback``` folder and will be in PDF format. 
+The process generates feedback files for participants based on their Garmin data. It produces feedback of their daily heart rate, activity and steps. The feedback files will be saved in the ```feedback``` folder within the ```participant_feedback``` folder and will be in PDF format. 
 > Note: The ```feedback``` folder, along with other required subfolders, will be automatically created by the script if they don't already exist.
