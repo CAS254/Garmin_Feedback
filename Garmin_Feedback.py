@@ -18,7 +18,8 @@ from PIL import Image
 from matplotlib.patches import Rectangle, Patch
 from matplotlib.lines import Line2D
 import argparse
-import time
+import time as time_module
+from datetime import datetime, timedelta, time
 
 # Automatic re-set of text color to default after printing text in different color
 colorama_init(autoreset=True)
@@ -39,12 +40,19 @@ participant_feedback_dir = ''
 # Leave as an empty list [] if participant folders are stored directly in the data_dir.
 sub_folders = []
 
+# If you want to add an extra heart rate and activity plot for a specified shorter time-period, e.g., if the participant have done a fitness test, this time period can be plotted as a more "zoomed-in" plot
+# Fill in ID and timepoints in the example.csv from the ZIP folder and provide the full path for the CSV below:
+# Example: Q:/mystudy/participant_feedback/Specify_TimeInterval.csv'
+#interval_spec_path = 'Q:/Data/BRC_Projects/PP04 - Thyroid/participant_feedback/Specify_TimeInterval.csv'
+interval_spec_path = ''
+
 # The folders below should NOT be edited
 feedback_folder = os.path.join(participant_feedback_dir, 'feedback')
 collapsed_data = os.path.join(participant_feedback_dir, 'collapsed_data')
 plots_path = os.path.join(participant_feedback_dir, 'plots')
 activity_heartrate_path = os.path.join(plots_path, 'activity_heartrate')
 steps_path = os.path.join(plots_path, 'steps')
+interval_activity_heartrate_path = os.path.join(plots_path, 'interval_plot')
 
 
 # ====================================================================================================================== #
@@ -57,8 +65,47 @@ def create_folder(folder_path):
     if not os.path.exists(folder_path):
         os.mkdir(folder_path)
 
+# --- Helper function to insert image into PDF --- #
+def pdf_help_function(pdf, image_path, title_graph, x, w, image_height_mm, top_margin = 10, cleanup=True):
+    '''
+    Helper function to insert an image/plot into PDF at the current position, automatically adding a new page if image won't fit. Removing image file afterwards.
+    :param pdf: PDF where the image will be inserted.
+    :param image_path: Full path to the image to insert.
+    :param x: Horizontal position (in mm) from the left margin where the image will be placed.
+    :param w: Width (in mm) to insert the image in the pdf
+    :param image_height_mm: Height (in mm) the image will occupy)
+    :param top_margin: Top margin (in mm) to use if a new page is added (default = 10 mm)
+    :param cleanup: Whether to delete the image after inserting is into the PDF (default = True)
+    '''
+    y = pdf.get_y()
+    page_height_mm = 297
+
+    # Starting new page if the image and title won't fit current page
+    if y + image_height_mm + 10 > page_height_mm:
+        pdf.add_page()
+        y = top_margin
+        pdf.set_y(y)
+
+    # Insert title
+    pdf.set_font('Arial', 'B', 16)
+    pdf.cell(0, 10, title_graph, ln=1)
+
+    # Update y after the title is printed
+    y = pdf.get_y()
+
+    # Insert image
+    pdf.image(image_path, x=x, y=y, w=w)
+
+    # Updating curser position below the image
+    pdf.set_y(y + image_height_mm)
+
+    # Remove image from folder
+    if cleanup:
+        os.remove(image_path)
+
+
 # --- Creating and exporting PDF with participant feedback --- #
-def create_pdf(output_dir, id, height_mm):
+def create_pdf(output_dir, id, output_files, heights_mm, interval_height_mm, steps_height_mm, steps_width_mm):
     '''
     The function creates a PDF with feedback folder containing heart rate, activity and daily steps data.
     :param output_dir: Folder where the PDF will be outputted to.
@@ -94,7 +141,11 @@ def create_pdf(output_dir, id, height_mm):
     pdf.ln(10)
 
     # Inserting the activity and heart rate plot
-    path = os.path.join(activity_heartrate_path, f'{id}_plot.png')
+    for i, (plot_path, height) in enumerate(zip(output_files, heights_mm)):
+        title = 'Activity and heart rate for full wear period'
+        if len(output_files) > 1:
+            title += f' (part {i + 1})'
+        pdf_help_function(pdf, plot_path, title_graph=title, x=10, w=180, image_height_mm=height)
 
     if os.path.exists(path):
         y = pdf.get_y()
@@ -103,19 +154,18 @@ def create_pdf(output_dir, id, height_mm):
     else:
         pass
 
-    # Setting the y (curser) to the height of the activity and heartrate plot (so that next plot is below this)
-    pdf.set_y(y + height_mm + 10)
+    interval_plot_path = os.path.join(interval_activity_heartrate_path, f'{id}_interval_plot.png')
+    if os.path.exists(interval_plot_path):
+        pdf_help_function(pdf, interval_plot_path, title_graph='Activity and heart rate for specified period', x=10, w=180, image_height_mm=interval_height_mm)
 
     # Inserting plot displaying daily steps
-    pdf.set_font('Arial', 'B', 16)
-    pdf.cell(0, 10, "Daily steps", ln=1)
     step_path = os.path.join(steps_path, f'{id}_steps.png')
-    if os.path.exists(step_path):
-        y = pdf.get_y()
-        pdf.image(step_path, x=10, y=y + 1, w=120)
-        os.remove(step_path)
+    if steps_width_mm > 210:
+        steps_plot_width = 190
     else:
-        pass
+        steps_plot_width = steps_width_mm
+    if os.path.exists(step_path):
+        pdf_help_function(pdf, step_path, title_graph='Daily steps', x=10, w=steps_plot_width, image_height_mm=150)
 
     # Outputting the PDF to the feedback folder
     pdf.output(os.path.join(output_dir, f"{id}_feedback.pdf"))
@@ -302,7 +352,6 @@ def remove_noise(df):
 
     # Calculating the enmo mean for hours where the SD is below 10 (expecting these hours to be asleep). The enmo mean for these hours is used to remove noise
     SD_by_hour = df.groupby('hour')['ENMO'].std()
-    #print(SD_by_hour)
     still_hours = SD_by_hour[SD_by_hour < 10].index
     filtered_df = df[df['hour'].isin(still_hours)]
     still_hour_enmo_mean = filtered_df['ENMO'].mean()
@@ -330,7 +379,7 @@ def merge_data(hr_df, acc_df, still_hour_enmo_mean):
 
 
 # --- Creating plot of HR and acc data for each day --- #
-def combine_barplot_lineplot(df):
+def combine_barplot_lineplot(df, base_name_plot):
     '''
     Creating plot displaying daily heart rate and movement
     :param df: The merged dataframe with heart rate and movement data
@@ -353,126 +402,135 @@ def combine_barplot_lineplot(df):
     sns.set_style("darkgrid")
     plt.rcParams.update({'font.size': 9})
 
-    # Creating sub plot for each day
+    # Counting days
     unique_days = sorted(df['day'].unique())
     num_days = len(unique_days)
-    fig, axes = plt.subplots(num_days, 1, figsize=(8, 1.5 * num_days), sharex=True)
 
-    # Ensures code won't crash if only one day of data
-    if num_days == 1:
-        axes = [axes]
+    # Split plot into batches if more than 7 days
+    batches = [unique_days[i:i+6] for i in range(0, num_days, 6)]
 
-    # Looping through each day to plot it
-    for i, day in enumerate(unique_days):
-        ax = axes[i]
+    output_files = []
+    heights_mm = []
+    widths_mm = []
 
-        # Merging each day with a "full day" range so that the x axis goes from midnight to midnight even if devices wasn't worn the whole duration
-        day_df = df[df['day'] == day].copy()
-        merged_day_df = day_df.merge(full_df, on='time', how='right')
-        merged_day_df['ENMO'] = merged_day_df['ENMO'].fillna(0)
+    # Creating sub plot for each day
+    for batch_index, days_subset in enumerate(batches):
+        fig, axes = plt.subplots(len(days_subset), 1, figsize=(8, 1.5 * len(days_subset)), sharex=True, constrained_layout=True)
 
+        # Ensures code won't crash if only one day of data
+        if len(days_subset) == 1:
+            axes = [axes]
 
-        # Creating minute variable to use a numeric time variable when plotting data over time
-        merged_day_df['minutes'] = merged_day_df['time'].apply(lambda t: t.hour * 60 + t.minute)
-        merged_day_df['Heart Rate (bpm)'] = merged_day_df['Heart Rate (bpm)'].replace('', np.nan)
-        merged_day_df['Heart Rate (bpm)'] = pd.to_numeric(merged_day_df['Heart Rate (bpm)'], errors='coerce')
-        merged_day_df['ENMO'] = pd.to_numeric(merged_day_df['ENMO'], errors='coerce')
-        merged_day_df['time'] = merged_day_df['time'].apply(lambda t: t.strftime('%H:%M'))
+        # Looping through each day to plot it
+        for i, day in enumerate(days_subset):
+            ax = axes[i]
 
-        # Creating separate y-axis for the two plot but shared x-axis
-        ax_bar = ax
-        ax_line = ax_bar.twinx()
+            # Merging each day with a "full day" range so that the x axis goes from midnight to midnight even if devices wasn't worn the whole duration
+            day_df = df[df['day'] == day].copy()
+            merged_day_df = day_df.merge(full_df, on='time', how='right')
+            merged_day_df['ENMO'] = merged_day_df['ENMO'].fillna(0)
 
-        # Creating bar plot displaying daily enmo
-        enmo_color = 'black'
-        heartrate_color = 'red'
-        if merged_day_df['ENMO'].notna().any():
-            ax_bar.bar(merged_day_df['minutes'], merged_day_df['ENMO'], color=enmo_color, width=1.0, edgecolor='black', zorder=2)
+            # Creating minute variable to use a numeric time variable when plotting data over time
+            merged_day_df['minutes'] = merged_day_df['time'].apply(lambda t: t.hour * 60 + t.minute)
+            merged_day_df['Heart Rate (bpm)'] = merged_day_df['Heart Rate (bpm)'].replace('', np.nan)
+            merged_day_df['Heart Rate (bpm)'] = pd.to_numeric(merged_day_df['Heart Rate (bpm)'], errors='coerce')
+            merged_day_df['ENMO'] = pd.to_numeric(merged_day_df['ENMO'], errors='coerce')
+            merged_day_df['time'] = merged_day_df['time'].apply(lambda t: t.strftime('%H:%M'))
 
-        # Creating line plot displaying daily heart rate
-        if merged_day_df['Heart Rate (bpm)'].notna().any():
-            x_values = merged_day_df['minutes']
-            y_values = merged_day_df['Heart Rate (bpm)']
-            ax_line.plot(x_values, y_values, color=heartrate_color, linewidth=0.5, zorder=3)
+            # Creating separate y-axis for the two plot but shared x-axis
+            ax_bar = ax
+            ax_line = ax_bar.twinx()
 
-        # Creating shaded area where heart rate is missing
-        hr_zero = merged_day_df['Heart Rate (bpm)'].isna()
-        zero_blocks = []
-        current_block = None
+            # Creating bar plot displaying daily enmo
+            enmo_color = 'black'
+            heartrate_color = 'red'
+            if merged_day_df['ENMO'].notna().any():
+                ax_bar.bar(merged_day_df['minutes'], merged_day_df['ENMO'], color=enmo_color, width=1.0, edgecolor='black', zorder=2)
 
-        for j, (minute, is_zero) in enumerate(zip(merged_day_df['minutes'], hr_zero)):
-            if is_zero and current_block is None:
-                current_block = [minute, minute]
-            elif is_zero:
-                current_block[1] = minute
-            elif current_block:
+            # Creating line plot displaying daily heart rate
+            if merged_day_df['Heart Rate (bpm)'].notna().any():
+                x_values = merged_day_df['minutes']
+                y_values = merged_day_df['Heart Rate (bpm)']
+                ax_line.plot(x_values, y_values, color=heartrate_color, linewidth=0.5, zorder=3)
+
+            # Creating shaded area where heart rate is missing
+            hr_zero = merged_day_df['Heart Rate (bpm)'].isna()
+            zero_blocks = []
+            current_block = None
+
+            for j, (minute, is_zero) in enumerate(zip(merged_day_df['minutes'], hr_zero)):
+                if is_zero and current_block is None:
+                    current_block = [minute, minute]
+                elif is_zero:
+                    current_block[1] = minute
+                elif current_block:
+                    zero_blocks.append(current_block)
+                    current_block = None
+            if current_block:
                 zero_blocks.append(current_block)
-                current_block = None
-        if current_block:
-            zero_blocks.append(current_block)
-        for block in zero_blocks:
-            width = block[1] - block[0]
-            rect = Rectangle((block[0], 0), width, 800, facecolor='none', edgecolor='darkgrey', hatch='////', linewidth=0, zorder=1)
-            ax_bar.add_patch(rect)
+            for block in zero_blocks:
+                width = block[1] - block[0]
+                rect = Rectangle((block[0], 0), width, 800, facecolor='none', edgecolor='darkgrey', hatch='////', linewidth=0, zorder=1)
+                ax_bar.add_patch(rect)
 
 
-        # --- FORMATTING PLOT --- #
-        # Setting y labels
-        ax_bar.set_ylabel('Activity', color=enmo_color, fontsize=10)
-        ax_line.set_ylabel('Heart Rate (BPM)', color=heartrate_color, fontsize=10)
+            # --- FORMATTING PLOT --- #
+            # Setting y labels
+            ax_bar.set_ylabel('Activity', color=enmo_color, fontsize=10)
+            ax_line.set_ylabel('Heart Rate (BPM)', color=heartrate_color, fontsize=10)
 
-        # Generating date variable to display date for each sub plot
-        day_date = day_df['date'].iloc[0]
-        formatted_date = day_date.strftime('%d-%m-%Y')
-        weekday = day_date.strftime('%A')
-        ax.set_title(f'{weekday} {formatted_date}', fontsize=10)
+            # Generating date variable to display date for each sub plot
+            day_date = day_df['date'].iloc[0]
+            formatted_date = day_date.strftime('%d-%m-%Y')
+            weekday = day_date.strftime('%A')
+            ax.set_title(f'{weekday} {formatted_date}', fontsize=10)
 
-        # Formatting the y-axis ticks
-        ax_bar.tick_params(axis='y', labelcolor=enmo_color)
-        ax_bar.set_ylim(0, 800)
-        ax_bar.set_yticks([0, 200, 400, 600, 800])
-        ax_line.tick_params(axis='y', labelcolor=heartrate_color)
-        ax_line.set_ylim(0, 200)
-        ax_line.set_yticks([0, 50, 100, 150, 200])
+            # Formatting the y-axis ticks
+            ax_bar.tick_params(axis='y', labelcolor=enmo_color)
+            ax_bar.set_ylim(0, 800)
+            ax_bar.set_yticks([0, 200, 400, 600, 800])
+            ax_line.tick_params(axis='y', labelcolor=heartrate_color)
+            ax_line.set_ylim(0, 200)
+            ax_line.set_yticks([0, 50, 100, 150, 200])
 
-        # Setting grid lines
-        plt.grid(True, linestyle='--', alpha=0.1, axis='y', zorder=0)
+            # Setting grid lines
+            plt.grid(True, linestyle='--', alpha=0.1, axis='y', zorder=0)
 
-        # Specifying ticks on the x-axis (only on the last days sub plot):
-        if i == num_days - 1:
-            ax.set_xlim(0, 1439)
-            desired_xticks = [0, 360, 720, 1080, 1439]
-            xtick_labels = ['00:00', '06:00', '12:00', '18:00', '23:59']
-            ax.set_xticks(desired_xticks)
-            ax.set_xticklabels(xtick_labels, ha='center')
+            # Specifying ticks on the x-axis (only on the last days sub plot):
+            if i == len(days_subset) - 1:
+                ax.set_xlim(0, 1439)
+                desired_xticks = [0, 360, 720, 1080, 1439]
+                xtick_labels = ['00:00', '06:00', '12:00', '18:00', '23:59']
+                ax.set_xticks(desired_xticks)
+                ax.set_xticklabels(xtick_labels, ha='center')
 
-            ax_line.tick_params(axis='x', which='both', bottom=False, labelbottom=False)
-            ax.set_xlabel('\nTime', color=enmo_color, fontsize=10)
+                ax_line.tick_params(axis='x', which='both', bottom=False, labelbottom=False)
+                ax.set_xlabel('\nTime', color=enmo_color, fontsize=10)
 
-        else:
-            ax.set_xticks([])
+            else:
+                ax.set_xticks([])
 
-    # Creating legends on the graphs
-    activity_legend = Patch(facecolor='black', edgecolor='black', label='Activity')
-    hr_legend = Line2D([0], [0], color='red', linewidth=0.5, label='Heart Rate')
-    missing_hr_legend = Patch(facecolor='none', edgecolor='darkgrey', hatch='////', linewidth=0, label='Device not worn/poor signal')
+        # Creating legends on the graphs
+        activity_legend = Patch(facecolor='black', edgecolor='black', label='Activity')
+        hr_legend = Line2D([0], [0], color='red', linewidth=0.5, label='Heart Rate')
+        missing_hr_legend = Patch(facecolor='none', edgecolor='darkgrey', hatch='////', linewidth=0, label='Device not worn/poor signal')
 
-    fig.legend(handles=[activity_legend, hr_legend, missing_hr_legend], loc='upper left', ncol=3, bbox_to_anchor=(0.43, 1.08), frameon=True, framealpha=1.0, facecolor='white', edgecolor='lightgrey')
+        fig.legend(handles=[activity_legend, hr_legend, missing_hr_legend], loc='upper left', ncol=3, bbox_to_anchor=(0.43, 1.08), frameon=True, framealpha=1.0, facecolor='white', edgecolor='lightgrey')
 
-    # Optimizing the layout of the subplots and adding space between each plot
-    plt.tight_layout(pad=1.0)
-    path = os.path.join(activity_heartrate_path, f'{id}_plot.png')
-    plt.savefig(path, dpi=300, bbox_inches='tight')
+        filename = f'{base_name_plot}_part{batch_index+1}.png'
+        path = os.path.join(activity_heartrate_path, filename)
+        dpi = 300
+        plt.savefig(path, dpi=dpi, bbox_inches='tight')
 
-    # re-opening plot to get the height for the pdf (To be able to move the curser)
-    with Image.open(path) as img:
-        width_px, height_px = img.size
-    dpi = 96
-    px_per_mm = dpi / 25.4
-    height_mm = height_px / px_per_mm
-    plt.close(fig)
+        # re-opening plot to get the height for the pdf (To be able to move the curser)
+        height_mm, width_mm = get_plot_height(path, dpi)
+        plt.close(fig)
 
-    return num_days, height_mm
+        output_files.append(path)
+        heights_mm.append(height_mm)
+        widths_mm.append(width_mm)
+
+    return num_days, output_files, heights_mm, widths_mm
 
 
 # --- Summarising heart rate data --- #
@@ -509,19 +567,24 @@ def read_dailies(file_path):
         # Creating barplot to display daily steps
         sns.set_style("darkgrid")
         plt.rcParams.update({'font.size': 9})
-        fig, ax = plt.subplots()
-        sns.barplot(x='Date', y='Steps', data=dailies_df, ax=ax)
+        num_days = len(dailies_df)
+        bar_width = 0.8
+        fig_width = max(6, num_days * bar_width)
+        fig, ax = plt.subplots(figsize=(fig_width, 8))
+        sns.barplot(x='Date', y='Steps', data=dailies_df, ax=ax, width=0.6)
         plt.xlabel('\nDate')
         plt.ylabel('Steps')
         plt.title('Daily steps count', fontsize=14, fontweight='bold')
 
         # Displaying step count above the daily bar
         for index, row in dailies_df.iterrows():
-            plt.text(index, row['Steps'] + 100, str(row['Steps']), ha='center', fontsize=8)
+            plt.text(index, row['Steps'] + 100, str(row['Steps']), ha='center', fontsize=10)
 
         # Setting height of y axis
         max_steps = dailies_df['Steps'].max()
         plt.ylim(0, max_steps + 500)
+        ax.tick_params(axis='x', labelsize=10, rotation=45)
+        ax.tick_params(axis='y', labelsize=10)
 
         # Inserting grid lines
         plt.grid(True, linestyle='--', alpha=0.5, axis='y')
@@ -529,10 +592,170 @@ def read_dailies(file_path):
         # Outputting steps plot
         plt.tight_layout()
         path = os.path.join(steps_path, f'{id}_steps.png')
-        plt.savefig(path, dpi=300, bbox_inches='tight')
+        dpi = 300
+        plt.savefig(path, dpi=dpi, bbox_inches='tight')
         plt.close()
-    else:
-        pass
+
+        # re-opening plot to get the height for the pdf (To be able to move the curser)
+        steps_height_mm, steps_width_mm = get_plot_height(path, dpi)
+        plt.close(fig)
+
+    return steps_height_mm, steps_width_mm
+
+
+# --- Plotting specified interval (heart rate and activity) if time interval specified (e.g., if fitness test was done)
+def plot_interval(interval_spec_path, merged_df, id):
+    # Checking if CSV exists
+    if os.path.exists(interval_spec_path):
+        interval_df = pd.read_csv(interval_spec_path, dtype={'id': 'str'})
+
+        # Checking if participant has an interval specified
+        part_file = interval_df[interval_df['id'] == id].copy()
+
+        # Formatting datetime variables if participant has interval
+        if not part_file.empty:
+            start_time = part_file.iloc[0]['start_time']
+            end_time = part_file.iloc[0]['end_time']
+
+            # Filtering dataframe to only include specified interval
+            filtered_df = merged_df[
+                (merged_df['Start Time (Local)'] >= start_time) &
+                (merged_df['Start Time (Local)'] <= end_time)]
+            filtered_df = filtered_df.copy()
+
+            # Formatting date time variable and creating time variable
+            filtered_df['date'] = filtered_df['Start Time (Local)'].dt.date
+            filtered_df['time'] = filtered_df['Start Time (Local)'].dt.time
+
+            # Formatting heart rate value to numeric
+            filtered_df['Heart Rate (bpm)'] = pd.to_numeric(filtered_df['Heart Rate (bpm)'], errors='coerce')
+
+            # Specifying what style to use for the plot
+            fig, ax = plt.subplots(figsize=(8, 4))
+            sns.set_style("darkgrid")
+            plt.rcParams.update({'font.size': 9})
+
+            # Creating minute variable to use a numeric time variable when plotting data over time
+            filtered_df['minutes'] = filtered_df['time'].apply(lambda t: t.hour * 60 + t.minute)
+            filtered_df['Heart Rate (bpm)'] = filtered_df['Heart Rate (bpm)'].replace('', np.nan)
+            filtered_df['Heart Rate (bpm)'] = pd.to_numeric(filtered_df['Heart Rate (bpm)'], errors='coerce')
+            filtered_df['ENMO'] = pd.to_numeric(filtered_df['ENMO'], errors='coerce')
+            filtered_df['time'] = filtered_df['time'].apply(lambda t: t.strftime('%H:%M'))
+
+            # Creating plot and separate y-axis for the two plot but shared x-axis
+            ax_bar = ax
+            ax_line = ax_bar.twinx()
+
+            # Creating bar plot displaying daily enmo
+            enmo_color = 'black'
+            heartrate_color = 'red'
+            if filtered_df['ENMO'].notna().any():
+                ax_bar.bar(filtered_df['minutes'], filtered_df['ENMO'], color=enmo_color, width=1.0,
+                           edgecolor='black', zorder=2)
+
+            # Creating line plot displaying daily heart rate
+            if filtered_df['Heart Rate (bpm)'].notna().any():
+                x_values = filtered_df['minutes']
+                y_values = filtered_df['Heart Rate (bpm)']
+                ax_line.plot(x_values, y_values, color=heartrate_color, linewidth=0.5, zorder=3)
+
+            # Creating shaded area where heart rate is missing
+            hr_zero = filtered_df['Heart Rate (bpm)'].isna()
+            zero_blocks = []
+            current_block = None
+
+            for j, (minute, is_zero) in enumerate(zip(filtered_df['minutes'], hr_zero)):
+                if is_zero and current_block is None:
+                    current_block = [minute, minute]
+                elif is_zero:
+                    current_block[1] = minute
+                elif current_block:
+                    zero_blocks.append(current_block)
+                    current_block = None
+            if current_block:
+                zero_blocks.append(current_block)
+            for block in zero_blocks:
+                width = block[1] - block[0]
+                rect = Rectangle((block[0], 0), width, 800, facecolor='none', edgecolor='darkgrey', hatch='////',
+                                 linewidth=0, zorder=1)
+                ax_bar.add_patch(rect)
+
+            # --- FORMATTING PLOT --- #
+            # Setting y labels
+            ax_bar.set_ylabel('Activity', color=enmo_color, fontsize=10)
+            ax_line.set_ylabel('Heart Rate (BPM)', color=heartrate_color, fontsize=10)
+
+            # Generating date variable to display date for each sub plot
+            day_date = filtered_df['date'].iloc[0]
+            formatted_date = day_date.strftime('%d-%m-%Y')
+            weekday = day_date.strftime('%A')
+            ax.set_title(f'{weekday} {formatted_date}', fontsize=10)
+
+            # Formatting the y-axis ticks
+            ax_bar.tick_params(axis='y', labelcolor=enmo_color)
+            ax_bar.set_ylim(0, 800)
+            ax_bar.set_yticks([0, 80, 160, 240, 320, 400, 480, 560, 640, 720, 800])
+            ax_line.tick_params(axis='y', labelcolor=heartrate_color)
+            ax_line.set_ylim(0, 200)
+            ax_line.set_yticks([0, 20, 40, 60, 80, 100, 120, 140, 160, 180, 200])
+
+            # Setting grid lines
+            plt.grid(True, linestyle='--', alpha=0.1, axis='y', zorder=0)
+
+            # Specifying ticks on the x-axis (only on the last days sub plot):
+            start_minute = filtered_df['minutes'].min()
+            end_minute = filtered_df['minutes'].max()
+            num_ticks = 8
+            xticks = np.linspace(start_minute, end_minute, num_ticks).astype(int)
+            xtick_labels = [(datetime.combine(datetime.today(), time(0, 0)) + timedelta(minutes=int(m))).strftime('%H:%M') for m in xticks]
+            ax.set_xticks(xticks)
+            ax.set_xticklabels(xtick_labels, ha='center')
+            ax_line.tick_params(axis='x', which='both', bottom=False, labelbottom=False)
+            ax.set_xlabel('\nTime', color=enmo_color, fontsize=10)
+
+
+            # Creating legends on the graphs
+            activity_legend = Patch(facecolor='black', edgecolor='black', label='Activity')
+            hr_legend = Line2D([0], [0], color='red', linewidth=0.5, label='Heart Rate')
+            missing_hr_legend = Patch(facecolor='none', edgecolor='darkgrey', hatch='////', linewidth=0,
+                                      label='Device not worn/poor signal')
+
+            fig.legend(handles=[activity_legend, hr_legend, missing_hr_legend], loc='upper left', ncol=3,
+                       bbox_to_anchor=(0.43, 1.08), frameon=True, framealpha=1.0, facecolor='white',
+                       edgecolor='lightgrey')
+
+            # Optimizing the layout of the subplots and adding space between each plot
+            plt.tight_layout(pad=1.0)
+            path = os.path.join(interval_activity_heartrate_path, f'{id}_interval_plot.png')
+            dpi = 300
+            plt.savefig(path, dpi=dpi, bbox_inches='tight')
+
+            # re-opening plot to get the height for the pdf (To be able to move the curser)
+            interval_height_mm = get_plot_height(path, dpi)
+            plt.close(fig)
+
+        else:
+            interval_height_mm = None
+            interval_width_mm = None
+
+        return interval_height_mm, interval_width_mm
+
+
+# --- Getting height of plot to know where to input next plot --- #
+def get_plot_height(path, dpi):
+    '''
+    Helper function to calculate the height of the plot in mm, which is used when inserting plot into PDF
+    :param path: Path to the image file
+    :param dpi: Dots per inch (resolution of picture)
+    :return: plot_height_mm: Height of picture in mm
+    '''
+    with Image.open(path) as img:
+        width_px, height_px = img.size
+    px_per_mm = dpi / 25.4
+    plot_height_mm = height_px / px_per_mm
+    plot_width_mm = width_px / px_per_mm
+    return plot_height_mm, plot_width_mm
+
 
 # --- Calling functions --- #
 if __name__ == '__main__':
@@ -593,7 +816,7 @@ if __name__ == '__main__':
     # =========================================================================================================================================== #
     # --- CREATING FEEDBACK FOR IDs --- #
     for u, id in enumerate(list_ids, start=1):
-        code_start = time.time()
+        code_start = time_module.time()
         file_path = participant_paths.get(id)
         if not file_path or not os.path.exists(file_path):
             print(Fore.RED + f'There is no data for the following ID:' + Fore.YELLOW + f'    {id}' + Fore.RED + '.    Feedback will not be created for this ID.')
@@ -634,19 +857,24 @@ if __name__ == '__main__':
             # Plotting HR and Acc
             collapsed_file_path = os.path.join(collapsed_data, f'{id}_collapsed.csv')
             merged_df = pd.read_csv(collapsed_file_path)
-            num_days, height_mm = combine_barplot_lineplot(merged_df)
+            num_days, output_files, heights_mm, widths_mm = combine_barplot_lineplot(df=merged_df, base_name_plot=f'{id}_plot.png')
 
             # Summarising heart rate:
             min_hr, max_hr, mean_hr = sum_heartrate(merged_df)
 
             # Reading in dailies file and plotting steps
-            read_dailies(file_path)
+            steps_height_mm, steps_width_mm = read_dailies(file_path)
+
+            # If time interval is specified in a CSV file to plot part of wear period as a more zoomed plot, this is done
+            if interval_spec_path is not None and not '':
+                create_folder(interval_activity_heartrate_path)
+                interval_height_mm, interval_width_mm = plot_interval(interval_spec_path, merged_df, id)
 
             # Creating PDF with participant feedback in
-            create_pdf(feedback_folder, id, height_mm)
+            create_pdf(feedback_folder, id, output_files, heights_mm, interval_height_mm, steps_height_mm, steps_width_mm)
 
-            code_duration = time.time() - code_start
-            print(f'{id} processed in {code_duration:.2f} seconds')
+            code_duration = time_module.time() - code_start
+            #print(f'{id} processed in {code_duration:.2f} seconds')
 
             print(Fore.GREEN + f"\n {'-' * 30} Feedback is created for {id} {'-' * 30}\n")
         print("\n" + "+" * 100 + "\n")
