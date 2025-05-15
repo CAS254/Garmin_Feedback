@@ -122,7 +122,7 @@ def create_pdf(output_dir, id, output_files, heights_mm, interval_height_mm, ste
 
     # Inserting title for activity and heart rate data
     pdf.set_font('Arial', 'B', 16)
-    pdf.cell(0, 20, 'Movement and heart rate data', ln=1)
+    pdf.cell(0, 20, 'Activity and heart rate data', ln=1)
 
     # Insert participant ID and summary of HR data
     pdf.set_font('Arial', '', 10)
@@ -142,7 +142,7 @@ def create_pdf(output_dir, id, output_files, heights_mm, interval_height_mm, ste
 
     # Inserting the activity and heart rate plot
     for i, (plot_path, height) in enumerate(zip(output_files, heights_mm)):
-        title = 'Movement and heart rate for full wear period'
+        title = 'Activity and heart rate for full wear period'
         if len(output_files) > 1:
             title += f' (part {i + 1})'
         pdf_help_function(pdf, plot_path, title_graph=title, x=10, w=180, image_height_mm=height)
@@ -150,7 +150,7 @@ def create_pdf(output_dir, id, output_files, heights_mm, interval_height_mm, ste
 
     interval_plot_path = os.path.join(interval_activity_heartrate_path, f'{id}_interval_plot.png')
     if os.path.exists(interval_plot_path):
-        pdf_help_function(pdf, interval_plot_path, title_graph='Movement and heart rate for specified period', x=10, w=180, image_height_mm=interval_height_mm)
+        pdf_help_function(pdf, interval_plot_path, title_graph='Activity and heart rate for specified period', x=10, w=180, image_height_mm=interval_height_mm)
 
     # Inserting plot displaying daily steps
     step_path = os.path.join(steps_path, f'{id}_steps.png')
@@ -470,7 +470,7 @@ def combine_barplot_lineplot(df, base_name_plot):
 
             # --- FORMATTING PLOT --- #
             # Setting y labels
-            ax_bar.set_ylabel('Movement', color=enmo_color, fontsize=10)
+            ax_bar.set_ylabel('Activity', color=enmo_color, fontsize=10)
             ax_line.set_ylabel('Heart Rate (BPM)', color=heartrate_color, fontsize=10)
 
             # Generating date variable to display date for each sub plot
@@ -505,11 +505,13 @@ def combine_barplot_lineplot(df, base_name_plot):
                 ax.set_xticks([])
 
         # Creating legends on the graphs
-        activity_legend = Patch(facecolor='black', edgecolor='black', label='Movement')
+        is_last_batch = (batch_index == len(batches) - 1)
+        legend_y_position = 1.13 if is_last_batch else 1.05
+        activity_legend = Patch(facecolor='black', edgecolor='black', label='Activity')
         hr_legend = Line2D([0], [0], color='red', linewidth=0.5, label='Heart Rate')
         missing_hr_legend = Patch(facecolor='none', edgecolor='darkgrey', hatch='////', linewidth=0, label='Device not worn/poor signal')
 
-        fig.legend(handles=[activity_legend, hr_legend, missing_hr_legend], loc='upper left', ncol=3, bbox_to_anchor=(0.43, 1.08), frameon=True, framealpha=1.0, facecolor='white', edgecolor='lightgrey')
+        fig.legend(handles=[activity_legend, hr_legend, missing_hr_legend], loc='upper left', ncol=3, bbox_to_anchor=(0.43, legend_y_position), frameon=True, framealpha=1.0, facecolor='white', edgecolor='lightgrey')
 
         filename = f'{base_name_plot}_part{batch_index+1}.png'
         path = os.path.join(activity_heartrate_path, filename)
@@ -860,9 +862,11 @@ if __name__ == '__main__':
             steps_height_mm, steps_width_mm = read_dailies(file_path)
 
             # If time interval is specified in a CSV file to plot part of wear period as a more zoomed plot, this is done
-            if interval_spec_path is not None or not '':
+            if interval_spec_path:
                 create_folder(interval_activity_heartrate_path)
                 interval_height_mm, interval_width_mm = plot_interval(interval_spec_path, merged_df, id)
+            else:
+                interval_height_mm = None
 
             # Creating PDF with participant feedback in
             create_pdf(feedback_folder, id, output_files, heights_mm, interval_height_mm, steps_height_mm, steps_width_mm)
