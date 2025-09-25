@@ -544,7 +544,7 @@ def sum_heartrate(df):
 
 
 # --- Reading in dailies file --- #
-def read_dailies(file_path):
+def read_dailies(file_path, num_days):
     '''
     Importing dailises csv to create plot of daily steps count
     :param file_path: path for garmin data folder
@@ -556,6 +556,13 @@ def read_dailies(file_path):
 
         # Formatting data variable
         dailies_df['Date'] = pd.to_datetime(dailies_df['Calendar Date (Local)']).dt.strftime('%d-%m-%y')
+
+        # Creating day variable and only keeping days that had heart rate data
+        dailies_df['day'] = (dailies_df['Date'] != dailies_df['Date'].shift()).cumsum()
+
+        # Filtering dataframe to only include days with heart rate data
+        dailies_df = dailies_df[
+            (dailies_df['day'] <= num_days)].copy()
 
         # Clearing any existing plots
         plt.clf()
@@ -859,7 +866,7 @@ if __name__ == '__main__':
             min_hr, max_hr, mean_hr = sum_heartrate(merged_df)
 
             # Reading in dailies file and plotting steps
-            steps_height_mm, steps_width_mm = read_dailies(file_path)
+            steps_height_mm, steps_width_mm = read_dailies(file_path, num_days)
 
             # If time interval is specified in a CSV file to plot part of wear period as a more zoomed plot, this is done
             if interval_spec_path:
